@@ -1,0 +1,669 @@
+---
+#title: ""
+#author: "Amogelang Ramatlo"
+format:
+  pdf:
+    documentclass: article
+    geometry: 
+      - top=2.5cm
+      - bottom=2.5cm
+      - left=3cm
+      - right=2.5cm
+    include-in-header:
+      text: |
+        \usepackage{xcolor}
+        \usepackage{helvet}
+        \usepackage{graphicx}
+        \usepackage{caption}
+        \captionsetup[figure]{labelfont=bf, labelsep=colon}
+    fig-align: center
+    fig-pos: "H"
+    number-sections: true
+    embed-resource: true
+editor: visual
+execute:
+  echo: false
+  warning: false
+---
+
+\thispagestyle{empty}
+
+\begin{titlepage}
+    \raggedright
+    \vspace*{1.5cm}
+
+    % Accent Branding Bar
+    {\color[HTML]{1A2A3A}\rule{6cm}{6pt}} 
+    \vspace{1.2cm}
+
+    % Title and Subtitle
+    {\Huge \bfseries PREDICTING MEDICAL \\[0.1cm] COST CATEGORY} \\[0.6cm]
+    {\Large \color{gray} A Comparative Study of SVM and Neural Network Architectures} \\[2.5cm]
+
+    % Hero Section: Image and Tech Specs
+    \begin{minipage}[t]{0.55\textwidth}
+        \vspace{0pt} % Aligns top of minipages
+        \includegraphics[width=\textwidth]{imgs/project-img.png}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{0.35\textwidth}
+        \vspace{0pt}
+        \color[HTML]{1A2A3A}
+        \rule{\linewidth}{0.5pt} \\
+        \textbf{\footnotesize METHODOLOGY} \\
+        {\scriptsize 
+        SVM \& Neural Networks \\
+        Hyperparameter Tuning \\
+        Out-of-Sample Evaluation \\
+        AUROC / AUPRC Analysis} \\[-0.15cm] 
+        
+        \rule{\linewidth}{0.5pt} \\
+        \textbf{\footnotesize TECH STACK} \\
+        {\scriptsize 
+        R Statistical Language \\
+        Quarto and \LaTeX \\
+        Caret \\
+        Tidyverse} \\[-0.15cm]
+        
+        \rule{\linewidth}{0.5pt}
+    \end{minipage}
+
+    \vfill
+
+    % Signature & Professional Links
+    \noindent
+    \begin{minipage}[t]{0.6\textwidth}
+      \vspace{0pt}
+      {\large \textbf{Amogelang Ramatlo}} \\
+      {\small Quantitative Analyst \& Data Scientist} \\
+      \vspace{0.3cm}%
+      {\footnotesize \color{gray} Project Documentation \textbullet{} 30 May 2025}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[t]{0.3\textwidth}
+      \vspace{0pt}
+      \raggedleft
+      {\small \textbf{View Source}} \\
+      {\footnotesize \color{gray} github.com/amogelang-ramatlo/medical-costs}
+    \end{minipage}
+    
+
+
+    \vspace*{1cm}
+\end{titlepage}
+
+<!--# Leave empty space here -->
+
+\newpage
+\setcounter{page}{1}
+
+\hypersetup{colorlinks=true, linkcolor=black, urlcolor=black, citecolor=black}
+
+\tableofcontents
+\newpage
+
+```{r}
+# Libraries
+library(caret)
+library(corrplot)
+library(doParallel)
+library(doRNG)
+library(e1071)
+library(foreach)
+library(kableExtra)
+library(pROC)
+library(PRROC)
+library(tidyverse)
+
+# Keras
+library(keras)
+library(reticulate)
+library(tensorflow)
+
+# Load the data & create working copy
+insurance_raw <- read.csv("data/insurance.csv")
+insurance <- insurance_raw
+```
+
+# Introduction
+
+In the contemporary healthcare landscape, the ability to accurately predict medical expenditures is a cornerstone of financial sustainability for insurance providers and a critical element of public health policy. As healthcare costs continue to outpace inflation, the shift toward data-driven risk assessment has become essential. This report details a predictive modeling framework designed to classify individual medical cost categories, transitioning from the continuous estimation of insurance charges to a robust binary classification of high-risk cost profiles.
+
+Using demographic and behavioral indicators, such as age, body mass index (BMI), smoking status, and regional distribution, this study seeks to identify the primary drivers of high-cost medical claims. The analysis is conducted within the R statistical computing environment, prioritizing a reproducible and rigorous methodology. By leveraging a structured dataset of beneficiary attributes, this paper explores the intersection of lifestyle factors and clinical risk, ultimately providing a transparent, evidence-based approach to categorical cost prediction in the health insurance sector.
+
+## Key Research Objectives
+
+To provide a comprehensive analysis, this report focuses on the following pillars:
+
+-   Exploratory Data Analysis (EDA): Investigating feature distributions and their diagnostic correlation with the binary cost outcome (low vs. high).
+
+-   Comparative Modelling: Implementing Support Vector Machines (SVM) and Neural Network architectures, ensuring results are exactly reproducible through consistent seed setting and hyperparameter documentation.
+
+-   Model Interpretability: Moving beyond black-box predictions to analyze how specific variables, such as smoking status and BMI, impact the probability of high-cost classification.
+
+-   Quantitative Communication: Presenting findings through professionally typeset tables and high-resolution figures, adhering to academic standards for clarity and technical brevity.
+
+## Technical Data Specification
+
+This study utilizes the `insurance.csv` dataset, consisting of 1,000 observations across six primary predictors. For this analysis, the target variable was converted from continuous costs into a binary High vs. Low category to enable a focused risk-classification framework.
+
+The following table provides a precise breakdown of the feature space used throughout the modelling pipeline:
+
+\begin{table}[H]
+\centering
+\caption{Description of Predictor Variables in the Insurance Dataset}
+\label{tab:data-description}
+\small % Slightly smaller text looks more professional in tables
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{@{} l l p{10cm} @{}}
+\toprule
+\textbf{Variable} & \textbf{Type} & \textbf{Description} \\ \midrule
+Age & Integer & Age of the primary insurance beneficiary. \\
+Sex & Categorical & Gender of the contractor (Female/Male). \\
+BMI & Continuous & Body Mass Index, a proxy for body fat based on height and weight. \\
+Children & Integer & Number of dependents covered by the health insurance plan. \\
+Smoker & Categorical & Binary indicator of tobacco use (Yes/No). \\
+Region & Categorical & Residential area within the US (e.g., Northeast, Southeast, etc.). \\ 
+\bottomrule
+\end{tabular}
+\end{table}
+
+With the data dimensions established, the following chapter initiates the Exploratory Data Analysis (EDA) to visualize these relationships and identify the primary drivers of medical cost volatility.
+
+# Exploratory Data Analysis
+
+Exploratory Data Analysis (EDA) is conducted to evaluate the structural integrity and statistical properties of the dataset. This phase investigates feature distributions, verifies data completeness, and identifies latent patterns to inform the subsequent Support Vector Machine (SVM) and Neural Network architectures.
+
+## Data Architecture and Integrity
+
+```{r}
+#| output: false
+
+# Data Types and Structure
+str(insurance)
+
+# Check for missing values
+colSums(is.na(insurance))
+
+# Convert relevant categorical values to sentence case
+insurance <- insurance %>% mutate(across(where(is.character), str_to_title))
+```
+
+The primary dataset consists of 1,000 unique observations across six predictors. A diagnostic check confirmed the absence of missing values ($N=1000$) and duplicate entries, ensuring a complete-case analysis without the need for imputation. For the purpose of this analysis, the target variable—originally continuous medical charges—was transformed into a binary categorical metric: High vs. Low cost.
+
+## Data Partitioning and Preprocessing {#sec-data-partitioning-and-preprocessing}
+
+```{r}
+# Split data into training (80%) and testing (20%)
+set.seed(123)  # Setting seed for reproducibility
+train_index <- sample(1:nrow(insurance), 0.8 * nrow(insurance)) %>% sort()
+train_data <- insurance[train_index, ]
+test_data <- insurance[-train_index, ]
+```
+
+To ensure the generalizability of the predictive models and prevent Data Leakage, the dataset was partitioned into a training set (80%) and a hold-out test set (20%) prior to statistical interrogation. This separation ensures that all subsequent exploratory visualizations, feature scaling, and summary statistics are derived exclusively from the training partition ($n=800$). By isolating the test set ($n=200$), we maintain a "blind" evaluation environment, allowing for an unbiased assessment of the model's performance on unseen data. Subsequent analysis of the training data revealed a non-linear relationship between family size and cost (see @fig-children-risk-analysis), leading to the decision to encode Children as a categorical factor.
+
+### Categorical Transformation Strategy
+
+Categorical features, including Sex, Smoker, and Region, were encoded as factors to facilitate mathematical processing within the R environment. While the Children variable is recorded as a discrete integer, a preliminary analysis of the training data revealed a non-monotonic relationship between family size and cost classification.
+
+```{r}
+#| label: fig-children-risk-analysis
+#| fig-width: 8
+#| fig-height: 5
+#| out-width: "70%"
+##| fig-pos: 'H'
+#| fig-cap: "**Empirical Risk Analysis of Dependent Counts**. The line plot illustrates the probability of a High cost classification across varying levels of the Children variable within the training data. The distinct non-monotonic shift at three dependents, where the probability of a high-cost outcome increases from approximately 52% to 66%, justifies the re-encoding of this feature as a categorical factor to capture discrete risk thresholds."
+
+# Convert categorical variables to factors and customise the order of values
+train_data <- train_data %>% 
+  mutate(
+    charges = factor(charges, levels = c("Low", "High")),
+    region  = factor(region, labels = c("NE", "NW", "SE", "SW")),
+    sex     = factor(sex),
+    smoker  = factor(smoker, levels = c("No", "Yes"))
+  )
+
+# The line plot
+train_data %>%
+  group_by(children) %>%
+  summarise(high_prob = mean(charges == "High")) %>%
+  ggplot(aes(x = factor(children), y = high_prob, group = 1)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Number of Dependents (Children)", 
+       y = str_wrap("Probability of High-Cost Outcome", width = 20)) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.title.x = element_text(margin = margin(t = 10)), 
+    axis.title.y = element_text(margin = margin(r = 10))
+  )
+
+# Convert children to factor
+train_data <- train_data %>% mutate(children = factor(children))
+```
+
+The distribution of risk illustrated in @fig-children-risk-analysis suggests that family size does not impact the probability of a High-cost classification in a steady, linear fashion. Instead, the data reveals a critical tipping point at three dependents, where the likelihood of being categorised as 'High' jumps significantly. Treating Children as a categorical factor allows the classification models, specifically the SVM and Neural Network, to isolate these high-probability cohorts. This flexibility is essential for capturing the discrete shifts in risk status that a standard linear numeric constraint would otherwise smooth over.
+
+```{r}
+# Label mappings
+labels_categorical <- c(
+  children = "Number of Dependents (Children)",
+  sex      = "Sex",
+  smoker   = "Smoking Status",
+  region   = "Geographic Region"
+)
+
+labels_numeric <- c(
+  age = "Age (Years)",
+  bmi = "BMI (kg/m²)"
+)
+
+# Recode function, for ease of formatting 
+recode_variable <- function(x, type = c("all", "categorical", "numeric")) {
+  type <- match.arg(type)
+  
+  labels <- switch(
+    type,
+    categorical = labels_categorical,
+    numeric     = labels_numeric,
+    all         = c(labels_categorical, labels_numeric)
+  )
+  
+  recode(x, !!!labels, .default = x)
+}
+```
+
+## Univariate Feature Profiling
+
+The univariate analysis characterizes the distribution, central tendency, and dispersion of the individual features within the training partition ($n=800$). This step is essential for identifying potential outliers and understanding the "shape" of the risk factors before modelling.
+
+### Target Variable Distribution
+
+The primary objective of this study is the classification of beneficiaries into High and Low cost categories. A univariate assessment of the training data reveals the distribution of the response variable.
+
+```{r}
+#| label: fig-cost-distribution
+#| fig-width: 5
+#| fig-asp: 0.6
+#| fig-pos: 'ht'
+#| fig-cap: "**Distribution of Medical Cost Categories**. The bar chart illustrates the frequency of observations within the training set. Unlike typical insurance models where high-cost outliers are rare, this dataset exhibits a relatively balanced distribution with a slight majority in the High cost category compared to the Low cost category."
+
+# Bar chart of the target variable
+ggplot(train_data, aes(x = charges)) +
+  geom_bar(width = 0.6, linewidth = 0.5) +
+  geom_text(
+    stat = "count", aes(label = after_stat(count)), 
+    vjust = 1.5, color = "white", size = 4
+  ) +
+  labs(x = "Cost Classification", y = "Frequency") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    panel.grid.major.x = element_blank(),
+    axis.title.y = element_text(margin = margin(r = 10))
+  )
+```
+
+\
+**Methodological Implications:**
+
+As illustrated in @fig-cost-distribution, the prevalence of High-cost observations (55.4%) ensures that the Neural Network and SVM models will have sufficient exposure to the risk-driving features during the training phase. However, because the classes are nearly balanced, the evaluation will focus on the Precision-Recall trade-off. Specifically, the analysis will monitor the False Positive Rate, as misclassifying low-risk individuals as High could lead to unnecessary premium hikes or resource misallocation in an actuarial context.
+
+While the distribution of the target variable establishes the baseline for model training, the predictive power of the system depends on the underlying demographic and behavioural features. The following sections provide a univariate summary of the numerical and categorical predictors to identify potential skewness and outlier influence.
+
+### Numerical Predictors: Descriptive Statistics
+
+Before examining the distributions visually, a five-number summary supplemented by the mean and standard deviation provides a precise numerical overview of the training partition ($n=800$). This statistical baseline, presented in @tbl-numerical-summary, highlights the central tendency and dispersion of the continuous features. Notably, while Children is treated as a categorical factor within the predictive models to capture non-linear risk thresholds (as discussed in @sec-data-partitioning-and-preprocessing), it is included here in numeric form to provide a demographic snapshot of the sample's family-size distribution.
+
+```{r}
+#| label: tbl-numerical-summary
+#| tbl-cap: "Summary Statistics for Numerical Predictors"
+
+# Summary statistics: Numerical
+summary_numerical <- train_data %>%
+  select(where(is.numeric)) %>% 
+  pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+  group_by(variable) %>%
+  summarise(
+    Min = min(level), Q1 = quantile(level, 0.25), Median = median(level),
+    Q3 = quantile(level, 0.75), Max = max(level), Mean = mean(level),
+    Std = sd(level), .groups = "drop"
+  )
+
+# Table of the summmary
+total_cols <- ncol(summary_numerical)
+align_str <- paste0("l", str_flatten(rep("r", total_cols - 1)))
+my_cols <- c("Variable", "Min", "Q1", "Median", "Q3", "Max", "Mean", "Std. Dev")
+
+summary_numerical %>%
+  mutate(across(where(is.numeric), ~ format(round(., 1), nsmall = 1))) %>%
+  mutate(variable = recode_variable(variable, "all")) %>%
+  kable(booktabs = TRUE, col.names = my_cols, align = align_str) %>%
+  kable_styling(latex_options = "hold_position", font_size = 8) %>%
+  column_spec(1, width = "1.7cm") %>% column_spec(2:total_cols, width = "1.2cm")
+```
+
+The descriptive statistics in @tbl-numerical-summary reveal several key characteristics of the training partition. The Age variable demonstrates high symmetry, as evidenced by the negligible difference between the mean and median, suggesting a balanced representation across the sample. Conversely, the BMI data indicates a population with a heightened risk profile; the average falls within the clinically defined Obese category, with the maximum value representing significant right-tail outliers. These extreme observations are of particular interest as they likely serve as primary drivers for the High cost classification. Finally, the distribution of Children is positively skewed indicating that while most beneficiaries have small families, a subset of the data contains larger family units which may impact total medical expenditure.
+
+### Numerical Predictors: Visualisations
+
+While the summary statistics in @tbl-numerical-summary provide a numerical baseline, a visual assessment of the feature distributions is necessary to identify the shape of the data and any potential non-linearity. Figure 2 illustrates the density and frequency of the three continuous variables.
+
+```{r}
+#| label: fig-dist-age-bmi
+#| fig-width: 8
+#| fig-asp: 0.5
+#| fig-cap: "**Distribution of Continuous Predictors**. The histograms illustrate the frequency of Age (left) and BMI (right) within the training data. Age demonstrates an approximately uniform distribution, while BMI follows a near-normal distribution with a slight, visible right-skewed tail representing higher-risk observations."
+
+# Long format of continuous data
+long_numeric <- train_data %>% 
+  select(age, bmi, charges) %>%
+  pivot_longer(-charges, names_to = "variable", values_to = "value")
+
+# The plot
+long_numeric %>%
+  mutate(variable = recode_variable(variable, "numeric")) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30, color = "white") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(x = NULL, y = "Frequency") +
+  theme_classic() +
+  theme(
+    axis.title.y = element_text(margin = margin(r = 10)),
+    strip.background = element_blank(), 
+    strip.text = element_text(face = "bold", size = 12)              
+  )
+```
+
+As illustrated in @fig-dist-age-bmi, the Age distribution is approximately uniform across the training set, ensuring that the predictive models are exposed to a diverse range of adult life stages without a significant bias toward any specific age bracket. In contrast, the BMI distribution follows a near-normal distribution centered around 30 $kg/m^2$. The right-skewed tail, extending beyond 50 $kg/m^2$, visually confirms the presence of high-risk outliers noted in the descriptive statistics, which are expected to be influential in the classification of high-cost beneficiaries.
+
+### Categorical Distributions
+
+Following the numerical analysis, the categorical variables were examined to assess class balance and the frequency of observations across each level. Understanding these distributions is paramount for the subsequent implementation of the SVM and Neural Network, as these models are sensitive to highly skewed predictors.
+
+#### Class Balance of the Target Variable
+
+As established in the methodology, medical charges were binned into a binary classification. Within the training partition ($n=800$), the distribution is relatively balanced, with 44.6% ($n=357$) of observations classified as Low cost and 55.4% ($n=443$) as High cost. This near-parity ensures that the classification models have sufficient exposure to both outcomes, reducing the risk of a majority class bias during training.
+
+#### Predictor Frequency Analysis
+
+The frequency distributions for the four categorical predictors are visualised below in @fig-categorical-grid.
+
+```{r}
+#| label: fig-categorical-grid
+#| fig-width: 9
+#| fig-height: 5
+#| fig-cap: "**Frequency Distribution of Categorical Predictors**. The faceted bar charts illustrate the composition of the training data across the four primary categorical features. While Sex and Geographic Region demonstrate near-uniform distributions, a pronounced class imbalance is observed in Smoking Status (80.4% Non-Smoker). Furthermore, the distribution of Dependents (Children) highlights the sparsity of data in the 4- and 5-child cohorts, identifying potential limitations for the classification models in high-density family units."
+
+# Long format of continuous data
+long_categoric <- train_data %>% 
+  select(-age, -bmi) %>%
+  pivot_longer(-charges, names_to = "variable", values_to = "level")
+
+# The plot
+long_categoric %>%
+  mutate(variable = recode_variable(variable, "categorical")) %>%
+  ggplot(aes(x = level)) +
+  geom_bar(alpha = 0.9) +
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -1, size = 3) +
+  facet_wrap(~ variable, scales = "free_x") + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  theme_bw() +
+  labs(x = NULL, y = "Frequency (Count)") +
+  theme(
+    panel.grid.major.x = element_blank(), 
+    panel.grid.minor.x = element_blank(), 
+    panel.grid.minor.y = element_blank(), 
+    axis.title.y = element_text(margin = margin(r = 10)),
+    strip.background = element_blank(), 
+    strip.text = element_text(face = "bold", size = 12)               
+  )
+```
+
+Several key observations emerge from this visual audit:
+
+-   Demographic Symmetry: Both Sex and Region demonstrate remarkable uniformity across the training set. The near-equal split between genders and the balanced geographic representation suggest that the dataset is free from regional or gender-based sampling bias, providing a stable foundation for the feature-selection process.
+
+-   Predictor Imbalance (Smoking Status): A pronounced skew is observed in the Smoker variable. This imbalance represents a specific challenge for the Neural Network, as the model must extract robust high-risk signals from a significantly smaller Yes cohort. This disparity necessitates careful monitoring of class-specific precision during the evaluation phase.
+
+-   Family Size Sparsity: The distribution of Children confirms that the dataset is heavily weighted toward smaller family units. The extreme sparsity in the four- and five-dependent categories suggests that while the models can be trained to recognize these levels as factors, the resulting predictions for large families may exhibit higher variance due to the limited number of training examples.
+
+## Bivariate Exploration {#sec-bivariate-exploration}
+
+Following the univariate assessment, @sec-bivariate-exploration transitions to a bivariate analysis to explore the relationships between individual predictors and the medical cost target. The primary objective of this phase is to identify which features provide the strongest discriminatory signals. By isolating these relationships before model implementation, we can better interpret the decision boundaries eventually established by the SVM and Artificial Neural Network (ANN).
+
+### Continuous Predictors vs. Cost Classification
+
+The continuous variables were evaluated against the binary cost target to determine how physical risk factors influence the probability of a High cost outcome. As illustrated in @fig-numeric-bivariate, the two variables exhibit differing levels of predictive strength.
+
+```{r}
+#| label: fig-numeric-bivariate
+#| fig-width: 5
+#| fig-height: 3
+#| fig-cap: "**Comparative Boxplots of Continuous Features by Cost Classification**. The visualization displays the distribution of Age (left) and Body Mass Index (right) across the binary target categories within the training data. The box boundaries denote the interquartile range ($IQR$), the central bold line represents the median, and individual points identify observations exceeding $1.5 \\times IQR$ from the hinges."
+
+# The plot
+long_numeric %>%
+  mutate(variable = recode_variable(variable, "numeric")) %>%
+  ggplot(aes(x = charges, y = value)) +
+  geom_boxplot(fill = "grey70") + 
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(x = "Charges Category", y = NULL) +
+  theme_bw() + 
+  theme(
+    panel.grid.major.x = element_blank(), 
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.spacing.x = unit(1, "cm"),
+    axis.title.y = element_text(margin = margin(r = 10)),
+    strip.background = element_blank(), 
+    strip.text = element_text(face = "bold", size = 12)               
+  )
+```
+
+#### **Age: A Primary Discriminator** {.unnumbered}
+
+Age exhibits a definitive separation between the two cost categories. The significant vertical displacement of the High cost median, positioned nearly two decades above the Low cost counterpart, suggests it is a dominant classification feature. Furthermore, the largely disjoint interquartile ranges ($IQR$) indicate a stable decision boundary, confirming chronological age as a fundamental determinant of risk.
+
+#### **BMI: Nuanced Risk Signal** {.unnumbered}
+
+In contrast, the BMI distributions show a high degree of overlap in central tendencies. The proximity of the median values suggests that body mass, in isolation, does not trigger a high-cost classification for the average individual. However, the High cost cohort is characterized by a broader upper-quartile spread and higher tail density. This indicates that extreme BMI values correlate more strongly with cost, likely contingent on interactions with behavioral factors like smoking.
+
+### Categorical Predictors vs. Cost Classification
+
+Proportional stacked bar charts were used to show how categorical features relate to medical expenditure. These visualizations, @fig-categorical-bivariate, display the relative probability of an observation falling into the High or Low cost category within each feature level, directly highlighting the risk profile of each subgroup.
+
+```{r}
+#| label: fig-categorical-bivariate
+#| fig-width: 6
+#| fig-asp: 0.8
+#| fig-pos: 'H'
+#| fig-cap: "**Proportional Distribution of Cost Class by Categorical Predictor**. Percentages denote the relative density of the High cost cohort within each subgroup, highlighting the extreme risk concentration in the Smoker category and the secondary influence of the Children variable."
+
+# Summary statistics: Categorical
+summary_categoric <- long_categoric %>%
+  count(variable, level, charges) %>%
+  group_by(variable, level) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# The plot
+summary_categoric %>%
+  mutate(variable = recode_variable(variable, "categorical")) %>%
+  # Filter to only create labels for the 'High' segment to avoid clutter
+  mutate(label = ifelse(charges == "High", paste0(round(prop * 100, 1), "%"), "")) %>%
+  ggplot(aes(x = level, y = prop, fill = charges)) +
+  geom_col(color = "white", linewidth = 0.2) +
+  # Place the text in the middle of each segment
+  geom_text(aes(label = label), 
+            position = position_stack(vjust = 0.5), 
+            size = 2, 
+            color = "white", 
+            fontface = "bold") +
+  facet_wrap(~ variable, scales = "free_x") +
+  scale_fill_manual(values = c("Low" = "grey80", "High" = "grey35")) +
+  labs(x = "Feature Level", y = NULL, fill = "Cost Class") +
+  theme_bw() + 
+  theme(
+    axis.text.y = element_blank(),    
+    axis.ticks.y = element_blank(),   
+    panel.grid = element_blank(),
+    #panel.spacing = unit(0.5, "cm"),
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+```
+
+#### Smoking Status: A Deterministic Risk Factor {.unnumbered}
+
+The Smoking predictor demonstrates the most significant class separation in the dataset. Notably, the Smoker cohort consists entirely of high-cost observations ($100\%$), identifying it as a deterministic trigger for the classification task. This absolute concentration suggests that smoking status will likely be the primary decision node for both the SVM and ANN architectures.
+
+#### Dependents and Regional Trends {.unnumbered}
+
+The relationship between family size and cost exhibits a moderate upward trend; cohorts with three or more children show a higher density of high-cost cases (up to $66.7\%$) compared to those with fewer dependents. In contrast, variables such as Sex and Region maintain a more balanced distribution across all levels. While minor regional fluctuations exist—such as a slightly higher concentration of high-cost cases in the Northeast ($62.8\%$)—these demographic factors offer substantially less discriminatory power than behavioral and family-size indicators.
+
+### Correlation Analysis and Multicollinearity
+
+To finalize the exploratory data analysis, a Pearson correlation matrix was computed to screen the feature space for multicollinearity. Identifying highly redundant predictors ($|r| > 0.7$) is critical for ensuring the stability of the SVM and preventing convergence issues within the ANN.
+
+#### Methodological Approach to Mixed-Data Correlation {.unnumbered}
+
+Calculating a unified correlation matrix across a dataset containing numeric, binary, and nominal variables requires specific encoding considerations.
+
+-   Point-Biserial Equivalence: Categorical features with two levels (e.g., Sex, Smoker, and the Cost target) were dummy-encoded as integers (0 and 1). When correlated with continuous variables like Age, the resulting Pearson coefficient mathematically functions as a Point-Biserial correlation, which is the industry standard for measuring the association between a binary and a continuous variable.
+
+-   Treatment of Nominal Data: The Region variable was integer-encoded for inclusion in the global matrix. While this technically treats a nominal variable as ordinal, it serves as a robust heuristic for a general screening of the data. Given that the regional correlation coefficients are exceptionally low ($|r| < 0.17$), the risk of a false linear dependency is negligible, and the variable is safe for inclusion in the subsequent machine learning models.
+
+```{r}
+#| label: fig-correlation-matrix
+#| fig-width: 4
+#| fig-asp: 0.8
+#| fig-pos: 'htb'
+#| fig-cap: "**Pearson Correlation Matrix**. The heatmap displays pairwise correlation coefficients for the encoded feature set. The scale confirms that the predictors are not highly collinear, justifying their simultaneous inclusion in the supervised learning architectures."
+
+# Prepare the numeric matrix 
+corr_matrix <- train_data %>%
+  rename(cost = charges) %>%
+  mutate(across(where(is.factor), as.numeric)) %>%
+  rename_with(~ str_to_sentence(.x)) %>%
+  rename(BMI = Bmi) %>%
+  select(sort(names(.))) %>%
+  cor(use = "complete.obs")
+
+# Generate the Plot
+corrplot(corr_matrix, 
+         type = "upper", 
+         tl.col = "black", 
+         tl.srt = 45,
+         tl.cex = 0.6,
+         col = COL2('RdBu', 10), 
+         addCoef.col = "black", 
+         number.cex = 0.6, 
+         diag = FALSE)
+```
+
+#### Analysis of Findings {.unnumbered}
+
+As illustrated in @fig-correlation-matrix, the dataset is characterized by low inter-variable correlation, indicating that the selected predictors provide independent dimensions of risk.
+
+-   Primary Cost Drivers: The strongest associations are observed between the target variable (Cost) and the predictors Age ($r = 0.63$) and Smoker ($r = 0.44$). This reinforces the bivariate findings and suggests these features will carry the highest predictive weight in the final models.
+
+-   Independence of Physical Risk: Crucially, there is minimal correlation between Age and BMI ($r = 0.16$), confirming that body mass does not scale linearly with age in this cohort.
+
+-   Model Stability: All off-diagonal coefficients remain well below the $|r| = 0.7$ threshold. This lack of significant overlap ensures that the feature set is numerically stable and ready for the weight-optimization phase of the classification models.
+
+# Model Design
+
+## Overview of the Modeling Framework
+
+The primary objective of this research is to evaluate the comparative performance of two distinct machine learning paradigms in classifying insurance beneficiaries into high or low-cost cohorts.
+
+1.  Support Vector Machines (SVM): Chosen for its robustness in high-dimensional spaces and its ability to find an optimal separating hyperplane.
+
+2.  Artificial Neural Networks (ANN): Selected for its capacity to capture non-linear interactions and complex patterns within the risk profile.
+
+## Support Vector Machine Architecture
+
+The SVM is a supervised learning algorithm used in this study to classify insurance beneficiaries into High or Low cost categories. Unlike traditional generalized linear models, SVMs seek to define an optimal hyperplane that maximizes the margin between the two classes in a high-dimensional feature space.
+
+### Data Transformation and Automated Pre-processing
+
+To prepare the training data for the distance-based requirements of the SVM, a unified pre-processing pipeline was implemented. Rather than manual transformation, this study relied on the `caret` framework’s internal engines to ensure mathematical consistency across all folds of the cross-validation.
+
+#### Categorical Encoding and Dummy Variables {.unnumbered}
+
+SVM algorithms require strictly numerical input to calculate the separating hyperplane. Consequently, all categorical predictors were transformed via One-Hot Encoding. By utilizing the *train* function’s native handling of factor variables, `caret` automatically decomposed these features into a numerical coordinate system. For binary factors like Smoker, this resulted in a single 0/1 indicator. For the multiclass Region variable, the system generated a series of distinct binary dummy variables. This encoding is critical for the RBF kernel; it ensures that geographical locations are treated as equidistant, discrete spatial shifts
+
+#### Feature Scaling for SVM {.unnumbered}
+
+Unlike tree-based models, SVM is highly sensitive to the scale of the input data. Because Age (ranging from 18 to 64) and BMI (mostly 15–50) exist on different magnitudes, all continuous features were standardized using Z-score normalization before training.
+
+\begin{equation*}
+z = \frac{x - \mu}{\sigma}
+\end{equation*}
+
+This ensures that the Age feature does not mathematically overwhelm BMI during the distance-based calculation of the hyperplane.
+
+### The Radial Basis Function (RBF) Kernel
+
+Given the non-linear nature of risk factors, such as the interaction between Age, BMI, and Smoking status, a linear separator is often insufficient. Therefore, this study employs the Radial Basis Function (RBF) kernel, also known as the Gaussian kernel. The RBF kernel allows the algorithm to handle non-linear decision boundaries by calculating the "similarity" between two points using the following formula:
+
+\begin{equation*}
+K(x, x') = \exp(-\sigma \|x - x'\|^2)
+\end{equation*}
+
+Where $\sigma$ (Sigma) defines the reach of a single training instance. A small $\sigma$ implies a wide influence, resulting in a smoother decision surface, whereas a large $\sigma$ creates a more localized and complex boundary.
+
+### Hyperparameter Optimization and Grid Search
+
+The predictive efficacy of the RBF-SVM is governed by two critical hyperparameters: the Cost ($C$) and Sigma ($\sigma$).
+
+-   The Cost Parameter ($C$): This determines the penalty for misclassification. A low $C$ prioritizes a wide margin (accepting some errors for better generalization), while a high $C$ penalizes every misclassification heavily (potentially leading to overfitting).
+
+-   Grid Search: A systematic grid search was conducted to identify the parameter pair $(C, \sigma)$ that maximizes the Area Under the ROC Curve (AUROC).
+
+```{r}
+#| label: svm-training-source
+#| eval: false
+#| echo: true
+
+# This code is executed manually once to generate the model
+# It is not run during Quarto rendering to save time.
+source("scripts/train_svm.R")
+```
+
+To ensure robust results, Repeated 10-Fold Cross-Validation (repeated 3 times) was employed. This partitioned the data into thirty distinct iterations to provide a stable estimate of model performance and prevent bias from a single data split. The results are shown in @fig-svm-tuning.
+
+```{r}
+#| label: fig-svm-tuning
+#| fig-width: 4
+#| fig-asp: 0.8
+#| fig-pos: 'htb'
+#| fig-cap: "SVM Hyperparameter Optimization Profile: (A) General Trend and (B) Zoomed Optimal Region."
+#| fig-subcap: 
+#|   - "Global Convergence"
+#|   - "Granular Optimal Region"
+#| layout-ncol: 2
+
+# Extract the results and convert Cost to a Factor for a clean legend
+svm_general <- readRDS("models/svm_tuned_general.rds")
+svm_zoomed <- readRDS("models/svm_tuned_zoomed.rds")
+
+svm_res
+```
+
+# Discussion
+
+The results highlight clear differences in the transmission of monetary policy between the pre- and post-COVID-19 periods. Before the pandemic, the Granger causality and VAR analyses indicated a relatively strong and broad transmission mechanism. Money supply, inflation, and the interbank rate significantly influenced key macroeconomic variables such as private credit and real GDP. This suggests that monetary policy actions—particularly those affecting liquidity and short-term interest rates—were effectively transmitted through the credit and price channels to impact output and financial activity, consistent with findings from for the South African context.
+
+# Conclusion
+
+This study examined how monetary policy affects the South African economy before and after the COVID-19 pandemic, using a vector autoregressive (VAR) framework along with impulse response functions (IRFs), forecast error variance decomposition (FEVD), and Granger causality analysis.
+
+\newpage
+
+# Appendix
