@@ -100,7 +100,7 @@ execute:
 
 \tableofcontents
 \newpage
-\pagenumbering{roman}
+\pagenumbering{arabic}
 
 ```{r}
 # Libraries
