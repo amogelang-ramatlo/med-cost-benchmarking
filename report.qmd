@@ -84,11 +84,9 @@ execute:
       \vspace{0pt}
       \raggedleft
       {\small \textbf{View Source}} \\
-      {\footnotesize \color{gray} github.com/amogelang-ramatlo/medical-costs}
+      {\footnotesize \color{gray} \href{https://github.com/amogelang-ramatlo/medical-costs}{github.com/amogelang-ramatlo/medical-costs}}
     \end{minipage}
     
-
-
     \vspace*{1cm}
 \end{titlepage}
 
