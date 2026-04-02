@@ -11,7 +11,7 @@ library(doParallel) # Parallel backend
 library(here)       # Project-root path management
 
 # --- Data Ingestion ---
-train_data <- readRDS(here("data", "processed_train.rds"))
+train_data <- readRDS(here("data", "train_data_processed.rds"))
 
 # --- Setup Parallel Backend ---
 cores <- detectCores() - 2 
@@ -19,7 +19,7 @@ cl <- makePSOCKcluster(cores)
 registerDoParallel(cl)
 
 # --- Training of the data ---
-# Define Training Parameters
+# Define Training Control
 train_control <- trainControl(
   method = "repeatedcv", 
   number = 10, 

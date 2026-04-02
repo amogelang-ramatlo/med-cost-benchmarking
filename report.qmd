@@ -95,12 +95,14 @@ execute:
 <!--# Leave empty space here -->
 
 \newpage
+\pagenumbering{roman}
 \setcounter{page}{1}
 
 \hypersetup{colorlinks=true, linkcolor=black, urlcolor=black, citecolor=black}
 
 \tableofcontents
 \newpage
+\pagenumbering{roman}
 
 ```{r}
 # Libraries
@@ -115,19 +117,17 @@ library(pROC)
 library(PRROC)
 library(tidyverse)
 
-# Keras
-library(keras)
-library(reticulate)
-library(tensorflow)
-
 # Load the data & create working copy
 insurance_raw <- read.csv("data/insurance.csv")
 insurance <- insurance_raw
+
+# Load script containing helper functions
+source("scripts/helper_functions.R")
 ```
 
 # Introduction
 
-In the contemporary healthcare landscape, the ability to accurately predict medical expenditures is a cornerstone of financial sustainability for insurance providers and a critical element of public health policy. As healthcare costs continue to outpace inflation, the shift toward data-driven risk assessment has become essential. This report details a predictive modeling framework designed to classify individual medical cost categories, transitioning from the continuous estimation of insurance charges to a robust binary classification of high-risk cost profiles.
+In the contemporary healthcare landscape, the ability to accurately predict medical expenditures is a cornerstone of financial sustainability for insurance providers and a critical element of public health policy. As healthcare costs continue to outpace inflation, the shift toward data-driven risk assessment has become essential. This report details a predictive modelling framework designed to classify individual medical cost categories, transitioning from the continuous estimation of insurance charges to a robust binary classification of high-risk cost profiles.
 
 Using demographic and behavioral indicators, such as age, body mass index (BMI), smoking status, and regional distribution, this study seeks to identify the primary drivers of high-cost medical claims. The analysis is conducted within the R statistical computing environment, prioritizing a reproducible and rigorous methodology. By leveraging a structured dataset of beneficiary attributes, this paper explores the intersection of lifestyle factors and clinical risk, ultimately providing a transparent, evidence-based approach to categorical cost prediction in the health insurance sector.
 
@@ -199,6 +199,10 @@ set.seed(123)  # Setting seed for reproducibility
 train_index <- sample(1:nrow(insurance), 0.8 * nrow(insurance)) %>% sort()
 train_data <- insurance[train_index, ]
 test_data <- insurance[-train_index, ]
+
+# Save cleaned data, not yet processed
+saveRDS(train_data, file = "data/train_data_clean.rds")
+saveRDS(test_data, file = "data/test_data_clean.rds")
 ```
 
 To ensure the generalizability of the predictive models and prevent Data Leakage, the dataset was partitioned into a training set (80%) and a hold-out test set (20%) prior to statistical interrogation. This separation ensures that all subsequent exploratory visualizations, feature scaling, and summary statistics are derived exclusively from the training partition ($n=800$). By isolating the test set ($n=200$), we maintain a "blind" evaluation environment, allowing for an unbiased assessment of the model's performance on unseen data. Subsequent analysis of the training data revealed a non-linear relationship between family size and cost (see @fig-children-risk-analysis), leading to the decision to encode Children as a categorical factor.
@@ -260,20 +264,6 @@ labels_numeric <- c(
   age = "Age (Years)",
   bmi = "BMI (kg/m²)"
 )
-
-# Recode function, for ease of formatting 
-recode_variable <- function(x, type = c("all", "categorical", "numeric")) {
-  type <- match.arg(type)
-  
-  labels <- switch(
-    type,
-    categorical = labels_categorical,
-    numeric     = labels_numeric,
-    all         = c(labels_categorical, labels_numeric)
-  )
-  
-  recode(x, !!!labels, .default = x)
-}
 ```
 
 ## Univariate Feature Profiling
@@ -576,6 +566,11 @@ As illustrated in @fig-correlation-matrix, the dataset is characterized by low i
 
 -   Model Stability: All off-diagonal coefficients remain well below the $|r| = 0.7$ threshold. This lack of significant overlap ensures that the feature set is numerically stable and ready for the weight-optimization phase of the classification models.
 
+```{r}
+# Save training data as RDS
+saveRDS(train_data, file = "data/train_data_processed.rds")
+```
+
 # Model Design
 
 ## Overview of the Modeling Framework
@@ -629,41 +624,370 @@ The predictive efficacy of the RBF-SVM is governed by two critical hyperparamete
 ```{r}
 #| label: svm-training-source
 #| eval: false
-#| echo: true
 
 # This code is executed manually once to generate the model
 # It is not run during Quarto rendering to save time.
 source("scripts/train_svm.R")
 ```
 
-To ensure robust results, Repeated 10-Fold Cross-Validation (repeated 3 times) was employed. This partitioned the data into thirty distinct iterations to provide a stable estimate of model performance and prevent bias from a single data split. The results are shown in @fig-svm-tuning.
+To ensure robust results, Repeated 10-Fold Cross-Validation (repeated 3 times) was employed. This partitioned the data into thirty distinct iterations to provide a stable estimate of model performance and prevent bias from a single data split.
 
 ```{r}
-#| label: fig-svm-tuning
-#| fig-width: 4
-#| fig-asp: 0.8
-#| fig-pos: 'htb'
-#| fig-cap: "SVM Hyperparameter Optimization Profile: (A) General Trend and (B) Zoomed Optimal Region."
-#| fig-subcap: 
-#|   - "Global Convergence"
-#|   - "Granular Optimal Region"
-#| layout-ncol: 2
-
 # Extract the results and convert Cost to a Factor for a clean legend
 svm_general <- readRDS("models/svm_tuned_general.rds")
 svm_zoomed <- readRDS("models/svm_tuned_zoomed.rds")
 
-svm_res
+# Combine results
+svm_results <- bind_rows(
+  svm_general$results %>% mutate(grid_type = "General"),
+  svm_zoomed$results  %>% mutate(grid_type = "Zoomed")
+)
+
+# The best parameters for each grid type search
+svm_params <- svm_results %>% 
+  group_by(grid_type) %>%
+  filter(ROC == max(ROC)) %>%
+  ungroup()
 ```
 
-# Discussion
+#### The Grid Search {.unnumbered}
 
-The results highlight clear differences in the transmission of monetary policy between the pre- and post-COVID-19 periods. Before the pandemic, the Granger causality and VAR analyses indicated a relatively strong and broad transmission mechanism. Money supply, inflation, and the interbank rate significantly influenced key macroeconomic variables such as private credit and real GDP. This suggests that monetary policy actions—particularly those affecting liquidity and short-term interest rates—were effectively transmitted through the credit and price channels to impact output and financial activity, consistent with findings from for the South African context.
+For tuning the SVM model we conducted a two-stage grid search strategy. First, a coarse grid was used to explore a wide range of values for $\sigma$. Upon identifying that the optimal performance trended toward the lower boundary, a refined (zoomed) grid was implemented between $0.001$ and $0.03$ with higher granularity. This allowed for the precise identification of the optimum without the computational cost of a high-density global search. The results are summarised in @tbl-svm-grid-search
+
+```{r}
+#| label: tbl-svm-grid-search
+#| tbl-cap: "Comparative Analysis of SVM Hyperparameter Optimization: Coarse vs. Refined Grid Search"
+
+# The Data
+table_data <- svm_params %>%
+  mutate(
+    # Create the range and increment strings based on the grid types
+    sig_range = ifelse(grid_type == "General", "[0.010, 1.000]", "[0.001, 0.030]"),
+    increment = ifelse(grid_type == "General", "0.010", "0.002"),
+    # Rounding for clean presentation
+    Best_Sigma = round(sigma, 3),
+    Best_ROC  = round(ROC, 4),
+  ) %>%
+  select(grid_type, sig_range, increment, C, Best_Sigma, Best_ROC) %>%
+  arrange(grid_type)
+
+# Table of the summmary
+total_cols <- ncol(table_data)
+align_str <- paste0("l", str_flatten(rep("c", total_cols - 1)))
+my_cols <- c("Search Stage", "Sigma Range", "Increment", 
+             "Best Cost", "Best Sigma", "Best ROC")
+
+# Render Kable table
+table_data %>%
+  kable(col.names = my_cols, escape = FALSE, align = align_str) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE,
+    latex_options = "hold_position" 
+  )
+```
+
+While the tabular results identify the optimal coordinates, the relationship between $\sigma$ and model performance is best illustrated by the optimization profiles in @fig-svm-optimization. In the general search (left), the AUROC peaks at the lower boundary ($\sigma = 0.01$), indicating that the search space had not yet captured the global optimum. The zoomed search (right) reveals a clear parabolic trend, successfully trapping the peak performance at $\sigma = 0.007$. This two-stage approach ensures the final model parameters represent a true optimization of the RBF kernel spread rather than a boundary artifact.
+
+```{r}
+#| label: fig-svm-optimization
+#| fig-width: 7
+#| fig-asp: 0.6
+#| fig-cap: "**SVM Hyperparameter Optimization Profile**. Comparison of General (Coarse) and Zoomed (Refined) Grid Searches. The open circles denote the maximum AUROC within each search space."
+
+# Combine the results
+svm_results <- bind_rows(
+  svm_general$results %>% mutate(grid_type = "General"),
+  svm_zoomed$results  %>% mutate(grid_type = "Zoomed")
+)
+
+# The plot
+ggplot(svm_results, aes(x = sigma, y = ROC, group = C, color = as.factor(C))) +
+  geom_line(linewidth = 1) +
+  geom_point(data = svm_params, aes(sigma, ROC), 
+             shape = 1, size = 4, color = "black") +
+  facet_wrap(~grid_type, scales = "free") + 
+  scale_color_brewer(palette = "Set1") +
+  theme_bw() +
+  labs(
+    x = "Sigma (Kernel Spread)", 
+    y = "Cross-Validation AUROC", 
+    color = "Cost (C)"
+  ) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    #panel.spacing.x = unit(1, "cm"),
+    axis.title.y = element_text(margin = margin(r = 10)),
+    axis.title.x = element_text(margin = margin(t = 10)),
+    strip.background = element_blank(), 
+    strip.text = element_text(face = "bold", size = 12)               
+  )
+```
+
+#### Final Selection {.unnumbered}
+
+```{r}
+# Best parameter combination
+best_params <- filter(svm_params, ROC == max(ROC)) %>% select(C, sigma)
+
+# Train final model with best parameters
+svm_model <- svm(
+  charges ~ ., 
+  data = train_data, 
+  kernel = "radial", 
+  cost = best_params$C[1], 
+  gamma = best_params$sigma[1], 
+  probability = TRUE
+)
+
+# Save the model
+saveRDS(svm_model, file = "models/svm_model_final.rds")
+```
+
+The final SVM model was trained using a Cost ($C$) of `r best_params$C[1]` and a Sigma ($\sigma$) of `r best_params$sigma[1]`.
+
+## Artificial Neural Network Architecture
+
+To complement the SVM, a Multi-Layer Perceptron (MLP) was implemented. While the SVM uses the RBF kernel to project data into higher dimensions, the Neural Network learns non-linear representations through nested hidden layers and activation functions.
+
+### Hyperparameter Optimization
+
+The predictive performance was optimized by tuning two primary parameters:
+
+-   Size: The number of hidden units (neurons) in the layer.
+-   Decay: A regularization parameter (weight decay) that penalizes large weights to prevent overfitting.
+
+```{r}
+#| label: ann-training-source
+#| eval: false
+
+# This code is executed manually once to generate the model
+# It is not run during Quarto rendering to save time.
+source("scripts/train_nn.R")
+```
+
+Similar to the SVM, a systematic grid search was conducted using Repeated 10-Fold Cross-Validation to determine the optimal configuration for the Neural Network. The search space focused on a single-hidden-layer architecture, evaluating the interaction between the number of hidden units and the weight decay regularization parameter. The resulting optimal hyperparameters identified through this process are summarised in @tbl-nn-optimization.
+
+```{r}
+#| label: tbl-nn-optimization
+#| tbl-cap: "Summary of Neural Network Hyperparameter Optimization Results"
+
+# Load the model (assuming it's saved as an rds)
+nn_model <- readRDS("models/nn_tuned.rds")
+
+# Extract best parameters
+nn_params <- nn_model$results %>%
+  filter(ROC == max(ROC)) %>%
+  slice(1) # Handle potential ties
+
+# Prepare the table data
+table_data <- data.frame(
+  Parameter = c("Hidden Units (Size)", "Weight Decay", "Max ROC"),
+  Value = c(
+    as.character(nn_params$size),
+    as.character(round(nn_params$decay, 4)),
+    as.character(round(nn_params$ROC, 4))
+  )
+)
+
+# Table of the summmary
+total_cols <- ncol(table_data)
+align_str <- paste0("l", str_flatten(rep("c", total_cols - 1)))
+my_cols <- c("Hyperparameter", "Optimal Value")
+
+# Render Kable table
+table_data %>%
+  kable(col.names = my_cols, align = align_str) %>%
+  kable_styling(latex_options = "hold_position")
+```
+
+### Visualizing the Network Sensitivity
+
+While the tabular results identify the optimal coordinates, the relationship between network complexity (size) and regularization (decay) is best illustrated by the optimization profile in @fig-nn-optimization.
+
+```{r}
+#| label: fig-nn-optimization
+#| fig-width: 5
+#| fig-asp: 0.6
+#| fig-cap: "**Neural Network Optimization**. AUROC performance across varying Hidden Units and Decay constants. The open circle denotes the maximum AUROC within the search space."
+
+ggplot(nn_model$results, aes(x = size, y = ROC, color = as.factor(decay))) +
+  geom_line(linewidth = 0.7) +
+  geom_point() +
+  theme_minimal() +
+  labs(
+    x = "Number of Hidden Units",
+    y = "AUROC (Cross-Validated)",
+    color = "Weight Decay"
+  ) +
+  scale_color_brewer(palette = "Set1") +
+  geom_point(data = nn_params, aes(x = size, y = ROC), 
+             color = "black", shape = 1, size = 5, stroke = 1.5) +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    axis.title.x = element_text(size = 10),
+    axis.title.y = element_text(size = 10, margin = margin(r = 10))
+  )
+ 
+```
+
+<!-- Leave this comment here -->
+
+```{r}
+# Define the champion parameters
+best_params <- expand.grid(size = nn_params$size[1], decay = nn_params$decay[1])
+
+# The "Final Fit" on the entire training set
+nn_model <- caret::train(
+  charges ~ ., 
+  data = train_data, 
+  method = "nnet",
+  tuneGrid = best_params,
+  preProcess = c("center", "scale"),
+  trControl = trainControl(method = "none", classProbs = TRUE), 
+  trace = FALSE,
+  maxit = 1000,   # High iterations to ensure total convergence
+  MaxNWts = 5000
+)
+
+# Save the final object for the Results chapter
+saveRDS(nn_model, "models/nn_model_final.rds")
+```
+
+# Model Evaluation and Comparison
+
+The final phase of this research involves evaluating the "Champion" models, the SVM ($C=10, \sigma=0.007$) and the ANN ($Nodes=9, \text{Decay}=0.01$), against the hold-out test set. This unseen data partition provides an unbiased assessment of how these models would perform in a live insurance environment.
+
+```{r}
+# Load cleaned test data
+test_data <- readRDS("data/test_data_clean.rds")
+
+# Ensure test data matches the structure of the training data.
+test_data <- test_data %>% 
+  mutate(
+    charges = factor(charges, levels = c("Low", "High")),
+    region  = factor(region, labels = c("NE", "NW", "SE", "SW")),
+    sex     = factor(sex),
+    smoker  = factor(smoker, levels = c("No", "Yes")),
+    children= factor(children) 
+  )
+```
+
+## Predictive Performance on Unseen Data
+
+To ensure the integrity of the evaluation, the test dataset remained entirely isolated during the training and tuning phases. Pre-processing parameters, including centering and scaling, were programmatically applied to the test observations using the statistics derived solely from the training set to prevent data leakage.
+
+```{r}
+# Predict on (unseen) test data
+svm_preds <- predict(svm_model, newdata = test_data, probability = TRUE)
+nn_preds <- predict(nn_model, newdata = test_data)
+
+# Extract the probabilities
+svm_probs <- attr(svm_preds, "probabilities")[, "High"]
+nn_probs <- predict(nn_model, newdata = test_data, type = "prob")[,"High"]
+
+# Compute misclassification errors (as percentages)
+svm_test_err <- mean(svm_preds != test_data$charges) * 100
+nn_test_err  <- mean(nn_preds  != test_data$charges) * 100
+```
+
+### Discrimination Power: ROC Analysis
+
+The primary metric for evaluating the models' ability to distinguish between high-cost and low-cost claimants is the Area Under the Receiver Operating Characteristic (AUROC) curve.
+
+```{r}
+#| label: fig-roc-comparison
+#| fig-width: 3.5
+#| fig-asp: 1
+#| fig-cap: "**Comparative ROC Analysis for Cost Classification**. The plot illustrates the trade-off between Sensitivity and the False Positive Rate for the Neural Network and SVM models. The dashed diagonal line represents the performance of a random classifier (AUC = 0.50)."
+
+#  Create ROC objects
+roc_svm <- roc(test_data$charges, svm_probs)
+roc_nn  <- roc(test_data$charges, nn_probs)
+
+# Convert to data frames for ggplot2
+df_svm <- data.frame(
+  Sensitivity = roc_svm$sensitivities,
+  Specificity = roc_svm$specificities,
+  Model = paste0("SVM (AUC = ", round(auc(roc_svm), 3), ")")
+)
+
+df_nn <- data.frame(
+  Sensitivity = roc_nn$sensitivities,
+  Specificity = roc_nn$specificities,
+  Model = paste0("NN (AUC = ", round(auc(roc_nn), 3), ")")
+)
+
+roc_data <- rbind(df_svm, df_nn)
+
+# Create plot
+ggplot(roc_data, aes(x = 1 - Specificity, y = Sensitivity, color = Model)) +
+  geom_path(size = 0.7) + 
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey60") +
+  coord_fixed(ratio = 1) +
+  scale_color_manual(values = c("#2C3E50", "#E67E22")) +
+  theme_bw() + 
+  labs(
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) +
+  theme(
+    legend.position = c(0.7135, 0.162), 
+    legend.background = element_rect(color = "grey80"),
+    panel.grid.minor = element_blank(),
+    axis.title.x = element_text(size = 10, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 10, margin = margin(r = 10))
+  )
+```
+
+The comparative ROC analysis, illustrated in @fig-roc-comparison, reveals that both models possess high discriminative efficiency. The Neural Network (AUC = 0.933) marginally outperforms the SVM (AUC = 0.925). The visual evidence suggests that the NN achieves a higher True Positive Rate (Sensitivity) across the critical threshold range (FPR \< 0.2), this means the NN is more efficient at identifying high-cost policyholders while maintaining a low rate of misclassification for standard risks.
+
+### Quantitative Performance Metrics
+
+While the ROC analysis provides a visual overview of model discrimination, a granular evaluation of classification performance is presented in @tbl-model-metrics. The NN outperformed the SVM across nearly all primary indicators.
+
+```{r}
+#| label: tbl-model-metrics
+#| tbl-cap: "Comparative Performance Metrics for the Optimized SVM and Neural Network Architectures. The metrics are evaluated on an independent test set ($n = 200$) to ensure unbiased results."
+
+model_metrics <- rbind(
+  evaluate_metrics(svm_probs, test_data$charges, "SVM"),
+  evaluate_metrics(nn_probs, test_data$charges, "NN")
+)
+
+# The Data
+table_data <- model_metrics %>%
+  mutate(across(where(is.numeric), ~ format(round(., 3), nsmall = 3))) 
+
+# Table of the summmary
+total_cols <- ncol(table_data)
+align_str <- paste0("l", str_flatten(rep("c", total_cols - 1)))
+my_cols <- gsub("_", "-", names(table_data)) 
+
+# Render Kable table
+table_data %>%
+  kable(booktabs = TRUE, col.names = my_cols, align = align_str) %>%
+  kable_styling(latex_options = "hold_position", font_size = 8)
+```
+
+Of particular significance to this study is the Precision metric. The NN achieved a Precision of 97.4%, compared to 94.2% for the SVM. This indicates that the NN is significantly more robust in avoiding Type I errors (False Positives). Given that both models achieved an identical Recall, the NN is the preferred model, as it provides the same level of risk detection with a higher degree of confidence in its positive classifications. The superior F1-Score further validates the NN as the most effective architecture for this specific cost classification task.
 
 # Conclusion
 
-This study examined how monetary policy affects the South African economy before and after the COVID-19 pandemic, using a vector autoregressive (VAR) framework along with impulse response functions (IRFs), forecast error variance decomposition (FEVD), and Granger causality analysis.
+### Final Model Recommendation {.unnumbered}
 
-\newpage
+This research demonstrates that while both the Support Vector Machine and the Artificial Neural Network are highly effective at cost classification, the Neural Network is the superior architecture for this application. With a Precision of 97.4% and an F1-Score of 0.934, the Neural Network provides the most reliable identification of high-risk profiles. The identical Recall across both models (89.8%) confirms that the Neural Network achieves this superior precision without sacrificing the ability to capture high-cost claimants.
 
-# Appendix
+### Key Contributions {.unnumbered}
+
+-   Architectural Efficiency: The study proves that a parsimonious, single-hidden-layer MLP architecture is sufficient to capture complex, non-linear patterns.
+
+-   Optimization Framework: The systematic use of Repeated 10-Fold Cross-Validation ensures that the reported metrics represent the models' global optima, providing a robust benchmark for future research.
+
+-   Actuarial Utility: The high precision of the champion model suggests significant potential for reducing adverse selection and improving the accuracy of solvency capital allocations.
+
+### Future Research {.unnumbered}
+
+To build upon these findings, future studies should investigate the temporal stability of these model weights over multiple financial cycles. Additionally, incorporating SHAP (SHapley Additive exPlanations) values would enhance the interpretability of the Neural Network, providing the "human-readable" justifications often required by insurance regulators.
